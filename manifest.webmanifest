@@ -1,0 +1,14 @@
+{
+  "name": "Frontier Housing Work Orders",
+  "short_name": "Work Orders",
+  "description": "Receive and complete Frontier Housing maintenance work orders.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef2f5",
+  "theme_color": "#2c5f8a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
