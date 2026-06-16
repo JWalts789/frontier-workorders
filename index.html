@@ -119,9 +119,8 @@
       <h2>Signatures</h2>
       <label>Maintenance signature</label>
       <div class="sig-wrap"><canvas class="sig" id="sigMaint"></canvas><div class="sig-bar"><span>Sign above</span><button type="button" data-clear="sigMaint">Clear</button></div></div>
-      <div class="chk"><input type="checkbox" id="tenantUnavail"><label for="tenantUnavail" style="margin:0;font-weight:600;">Tenant unavailable</label></div>
-      <div id="tenantSigWrap"><label>Tenant signature</label>
-        <div class="sig-wrap"><canvas class="sig" id="sigTenant"></canvas><div class="sig-bar"><span>Sign above</span><button type="button" data-clear="sigTenant">Clear</button></div></div></div>
+      <label>Tenant signature</label>
+      <div class="sig-wrap"><canvas class="sig" id="sigTenant"></canvas><div class="sig-bar"><span>Sign above</span><button type="button" data-clear="sigTenant">Clear</button></div></div>
     </div>
 
     <button class="btn" id="sendBtn">Complete &amp; Send</button>
@@ -214,7 +213,6 @@ function openJob(data,id){
   $('hdrsub').textContent=(data.complexUnit||'Work order')+(data.woNum?(' · #'+data.woNum):'');
   // reset completion fields
   ['completedBy','workDone','started','completed','followup'].forEach(id=>$(id).value='');
-  $('tenantUnavail').checked=false; $('tenantSigWrap').style.display='block';
   $('supBody').innerHTML=''; addRow(); addRow();
   padMaint.clear(); padTenant.clear();
   $('msg').className='msg'; $('msg').textContent='';
@@ -247,7 +245,6 @@ function makePad(canvas){
 const padMaint=makePad($('sigMaint')), padTenant=makePad($('sigTenant'));
 window.addEventListener('orientationchange',()=>setTimeout(()=>{padMaint.resize();padTenant.resize();},300));
 document.querySelectorAll('[data-clear]').forEach(b=>b.addEventListener('click',()=>{(b.dataset.clear==='sigMaint'?padMaint:padTenant).clear();}));
-$('tenantUnavail').addEventListener('change',e=>{$('tenantSigWrap').style.display=e.target.checked?'none':'block';});
 
 // ---------- print-ready PDF ----------
 function fld(v){return v?esc(v):'<span style="color:#999">—</span>';}
@@ -275,7 +272,7 @@ function buildPdfHtml(comp){
     <p style="margin:6px 0 2px;font-weight:bold;background:#000;color:#fff;padding:2px 6px;">COMPLETED</p>
     <table style="width:100%;font-size:12px;"><tr><td>Started: ${fld(comp.started)}</td><td>Completed: ${fld(comp.completed)}</td></tr>
     <tr><td colspan="2">Follow-up appt: ${fld(comp.followup)}</td></tr>
-    <tr><td>Maintenance: ${sig(comp.maintSig)}<br><span style="font-size:10px">${fld(comp.completedBy)}</span></td><td>Tenant: ${comp.tenantUnavail?'<i>Tenant Unavailable</i>':sig(comp.tenantSig)}</td></tr>
+    <tr><td>Maintenance: ${sig(comp.maintSig)}<br><span style="font-size:10px">${fld(comp.completedBy)}</span></td><td>Tenant: ${sig(comp.tenantSig)}</td></tr>
     <tr><td colspan="2">Approved by: _____________________  Date: ________</td></tr></table></div>`;
 }
 
@@ -284,38 +281,43 @@ async function send(){
   const btn=$('sendBtn'), msg=$('msg');
   const comp={completedBy:$('completedBy').value.trim(),workDone:$('workDone').value.trim(),supplies:readSupplies(),
     started:$('started').value.trim(),completed:$('completed').value.trim(),followup:$('followup').value.trim(),
-    tenantUnavail:$('tenantUnavail').checked,maintSig:padMaint.data(),tenantSig:padTenant.data()};
+    maintSig:padMaint.data(),tenantSig:padTenant.data()};
   if(!comp.workDone){msg.className='msg err';msg.textContent='Please add a description of the work done before sending.';return;}
-  btn.disabled=true; msg.className='msg info'; msg.textContent='Building the work order…';
+  btn.disabled=true; msg.className='msg info'; msg.textContent='Saving…';
+  const unit=(CURRENT.data&&CURRENT.data.complexUnit)||'Unit';
   try{
-    const host=$('pdfHost'); host.innerHTML=buildPdfHtml(comp);
-    const blob=await html2pdf().set({margin:0.4,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'in',format:'letter',orientation:'portrait'}}).from(host.firstChild).outputPdf('blob');
-    const unit=(CURRENT.data&&CURRENT.data.complexUnit)||'Unit';
-    const fname='WorkOrder_'+unit.replace(/[^A-Za-z0-9]+/g,'-')+'.pdf';
-    msg.textContent='Sending to the office…';
-    const fd=new FormData();
-    fd.append('access_key',WEB3FORMS_KEY);
-    fd.append('subject','Completed Work Order — '+unit+((CURRENT.data&&CURRENT.data.woNum)?(' (#'+CURRENT.data.woNum+')'):''));
-    fd.append('from_name','Frontier Work Order');
-    fd.append('Unit',unit); fd.append('Occupant',(CURRENT.data&&CURRENT.data.occName)||'');
-    fd.append('Work Done',comp.workDone); fd.append('Completed By',comp.completedBy);
-    fd.append('Started',comp.started); fd.append('Completed',comp.completed);
-    fd.append('attachment',new File([blob],fname,{type:'application/pdf'}));
-    const res=await fetch('https://api.web3forms.com/submit',{method:'POST',body:fd});
-    const j=await res.json();
-    if(!j.success) throw new Error(j.message||'Email send failed');
-    // mark the job completed so it leaves everyone's list
+    // 1) Save the completed record (incl. signatures) to Firestore — the record of truth.
     if(CURRENT.id){
       await db.collection('workorders').doc(CURRENT.id).update({
         status:'completed', completedBy:comp.completedBy, workDone:comp.workDone,
-        supplies:comp.supplies, started:comp.started, completed:comp.completed,
-        followup:comp.followup, tenantUnavail:comp.tenantUnavail,
+        supplies:comp.supplies, started:comp.started, completed:comp.completed, followup:comp.followup,
+        maintSig:comp.maintSig||'', tenantSig:comp.tenantSig||'',
         completedAt:firebase.firestore.FieldValue.serverTimestamp()
       });
     }
-    msg.className='msg ok'; msg.innerHTML='✓ Sent to the office and marked complete.';
+    // 2) Best-effort heads-up email (text only — Web3Forms free tier has no attachments).
+    let emailNote='';
+    try{
+      const supText=comp.supplies.map(s=>s.item+' (qty '+s.qty+(s.price?(', $'+s.price):'')+')').join('; ');
+      const fd=new FormData();
+      fd.append('access_key',WEB3FORMS_KEY);
+      fd.append('subject','Completed Work Order — '+unit+((CURRENT.data&&CURRENT.data.woNum)?(' (#'+CURRENT.data.woNum+')'):''));
+      fd.append('from_name','Frontier Work Orders');
+      fd.append('Unit',unit);
+      fd.append('Occupant',(CURRENT.data&&CURRENT.data.occName)||'');
+      fd.append('Priority',(CURRENT.data&&CURRENT.data.priority)||'');
+      fd.append('Work Requested',(CURRENT.data&&CURRENT.data.workRequested)||'');
+      fd.append('Work Done',comp.workDone);
+      fd.append('Completed By',comp.completedBy);
+      fd.append('Started',comp.started); fd.append('Completed',comp.completed);
+      fd.append('Supplies',supText||'(none)'); fd.append('Follow-up',comp.followup||'(none)');
+      const res=await fetch('https://api.web3forms.com/submit',{method:'POST',body:fd});
+      const j=await res.json();
+      if(!j.success) emailNote=' (heads-up email didn\'t send, but the job is saved.)';
+    }catch(e){ emailNote=' (heads-up email didn\'t send, but the job is saved.)'; }
+    msg.className='msg ok'; msg.innerHTML='✓ Completed and saved.'+emailNote;
     setTimeout(backToList,1400);
-  }catch(err){ msg.className='msg err'; msg.textContent='Could not send: '+err.message+'. Check signal and try again.'; btn.disabled=false; }
+  }catch(err){ msg.className='msg err'; msg.textContent='Could not save: '+err.message+'. Check signal and try again.'; btn.disabled=false; }
 }
 $('sendBtn').addEventListener('click',send);
 

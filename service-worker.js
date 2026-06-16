@@ -1,5 +1,5 @@
 // Frontier Work Orders — offline app shell
-const CACHE = 'fwo-v2';
+const CACHE = 'fwo-v3';
 const ASSETS = ['./', 'index.html', 'html2pdf.bundle.min.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
