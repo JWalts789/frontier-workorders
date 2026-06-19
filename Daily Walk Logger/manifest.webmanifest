@@ -1,0 +1,16 @@
+{
+  "name": "Daily Walk — Today's Loop",
+  "short_name": "Walk Log",
+  "description": "Daily property-walk logger for Frontier Housing — spot, work, and look back.",
+  "start_url": "Walk-Logger.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B7A3B",
+  "theme_color": "#0B7A3B",
+  "icons": [
+    { "src": "WalkLoggerPWAIcon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "WalkLoggerPWAIcon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "WalkLoggerPWAIcon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
